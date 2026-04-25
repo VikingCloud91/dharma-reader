@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dharma Reader</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
+    <style>
+        :root { --bg: #FFF9E6; --text: #2c2c2c; --primary: #8B0000; }
+        body { font-family: 'Georgia', serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+        header { background: var(--primary); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 100; position: sticky; top: 0; }
+        button { background: transparent; border: 1px solid white; color: white; padding: 8px 12px; cursor: pointer; border-radius: 4px; font-size: 0.9rem; }
+        .btn-dark { background: var(--primary); border: none; }
+        
+        /* Layout Sections */
+        .section { display: none; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .active { display: block; }
+
+        /* Auth Modal */
+        .auth-container { background: white; padding: 40px 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; max-width: 400px; margin-left: auto; margin-right: auto; }
+        .google-btn { width: 100%; margin-top: 20px; color: white; background: #4285F4; border: none; padding: 12px; font-size: 1rem; font-weight: bold; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .google-btn:hover { background: #357ae8; }
+
+        /* Dashboard Cards */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; text-align: center; border-top: 4px solid var(--primary); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-3px); }
+
+        /* Admin Editor */
+        #admin-panel { background: #ffe6e6; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px dashed var(--primary); }
+        
+        /* Reader */
+        #viewer-container { display: flex; flex-direction: column; align-items: center; }
+        #viewer { width: 100%; height: 65vh; background: white; margin-top: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .nav-controls { display: flex; justify-content: space-between; width: 100%; margin-top: 15px; }
+        .nav-controls button { color: var(--primary); border: 1px solid var(--primary); }
+        .nav-controls button:hover { background: var(--primary); color: white; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="font-size: 1.2rem; font-weight: bold;">Dharma Reader</div>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span id="user-email" style="font-size: 0.9rem; opacity: 0.9;"></span>
+            <button id="logout-btn" style="display:none;" onclick="signOut()">Logout</button>
+        </div>
+    </header>
+
+    <div id="auth-section" class="section active">
+        <div class="auth-container">
+            <h2 style="color: var(--primary); margin-top: 0;">Welcome</h2>
+            <p style="color: #666;">Please sign in to access your library and save your reading progress.</p>
+            
+            <button class="google-btn" onclick="signInWithGoogle()">
+                <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                Sign in with Google
+            </button>
+        </div>
+    </div>
+
+    <div id="dashboard-section" class="section">
+        <h2 style="color: var(--primary);">Your Library</h2>
+        
+        <div id="admin-panel" style="display: none;">
+            <h3 style="margin-top: 0; color: var(--primary);">🛠️ Admin Editor Mode</h3>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <input type="text" id="book-title" placeholder="Book Title (e.g. Mahabharata)" style="padding: 8px; flex-grow: 1;">
+                <input type="file" id="book-file" accept=".epub" style="color: black;">
+                <button class="btn-dark" onclick="uploadBook()">Upload Book</button>
+            </div>
+        </div>
+
+        <div id="book-list" class="grid">
+            </div>
+    </div>
+
+    <div id="reader-section" class="section">
+        <button class="btn-dark" onclick="showSection('dashboard-section')">← Back to Library</button>
+        
+        <div id="viewer-container">
+            <h3 id="current-book-title" style="text-align: center; color: var(--primary); margin-bottom: 5px;"></h3>
+            <div id="viewer"></div>
+            <div class="nav-controls">
+                <button onclick="if(rendition) rendition.prev()">❮ Previous Page</button>
+                <button onclick="if(rendition) rendition.next()">Next Page ❯</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. SUPABASE INITIALIZATION ---
+        const SUPABASE_URL = 'https://hitxkcalxcofvimcmnca.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpdHhrY2FseGNvZnZpbWNtbmNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTk3ODksImV4cCI6MjA5MjY3NTc4OX0.xEwkDKe1D2hGvHL2ZQZzEciOOIlYK5WIngLDLyFsWW0';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const ADMIN_EMAIL = '405shivpuram@gmail.com'; // Your admin credentials
+        let currentUser = null;
+        let currentBookId = null;
+        let book, rendition;
+
+        // --- 2. GOOGLE AUTHENTICATION LOGIC ---
+        async function signInWithGoogle() {
+            const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    // This dynamically gets your current URL (works locally & on GH Pages)
+                    redirectTo: window.location.origin + window.location.pathname 
+                }
+            });
+            if (error) alert(error.message);
+        }
+
+        async function signOut() {
+            await supabase.auth.signOut();
+            checkSession(); // refresh UI
+        }
+
+        // Run this function immediately when the page loads
+        async function checkSession() {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            
+            if (session) {
+                currentUser = session.user;
+                document.getElementById('user-email').innerText = currentUser.email;
+                document.getElementById('logout-btn').style.display = 'inline-block';
+                
+                // Show Admin Panel ONLY if logged in user is you
+                if (currentUser.email === ADMIN_EMAIL) {
+                    document.getElementById('admin-panel').style.display = 'block';
+                } else {
+                    document.getElementById('admin-panel').style.display = 'none';
+                }
+
+                showSection('dashboard-section');
+                fetchBooks();
+            } else {
+                currentUser = null;
+                document.getElementById('user-email').innerText = '';
+                document.getElementById('logout-btn').style.display = 'none';
+                showSection('auth-section');
+            }
+            
+            // Listen for auth state changes (e.g. returning from Google login)
+            supabase.auth.onAuthStateChange((event, session) => {
+                if (event === 'SIGNED_IN' && session) {
+                    window.location.reload(); // Refresh to ensure clean state
+                }
+            });
+        }
+
+        // --- 3. DATABASE & STORAGE LOGIC ---
+        async function fetchBooks() {
+            const { data, error } = await supabase.from('books').select('*').order('created_at', { ascending: true });
+            const list = document.getElementById('book-list');
+            list.innerHTML = '';
+            
+            if (error) {
+                console.error("Error fetching books:", error);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                data.forEach(b => {
+                    list.innerHTML += `
+                        <div class="card" onclick="openBook('${b.id}', '${b.title}', '${b.file_url}')">
+                            <h3 style="margin-top:0; color:var(--primary);">${b.title}</h3>
+                            <p style="font-size:0.85rem; color:#666; margin-bottom:0;">📖 Tap to read</p>
+                        </div>
+                    `;
+                });
+            } else {
+                list.innerHTML = '<p style="color:#666;">No books available yet.</p>';
+            }
+        }
+
+        async function uploadBook() {
+            const title = document.getElementById('book-title').value;
+            const fileInput = document.getElementById('book-file');
+            
+            if (!title || fileInput.files.length === 0) {
+                return alert('Please enter a title and select an EPUB file.');
+            }
+
+            const file = fileInput.files[0];
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Date.now()}_book.${fileExt}`;
+
+            alert('Uploading... Please wait. Do not close the page.');
+            
+            // 1. Upload file to Supabase Storage bucket 'dharma-books'
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('dharma-books')
+                .upload(fileName, file);
+
+            if (uploadError) return alert("Upload failed: " + uploadError.message);
+
+            // 2. Get the public URL for the newly uploaded file
+            const { data: { publicUrl } } = supabase.storage
+                .from('dharma-books')
+                .getPublicUrl(fileName);
+
+            // 3. Save the Book Details to the Database
+            const { error: dbError } = await supabase.from('books').insert([
+                { title: title, file_url: publicUrl }
+            ]);
+            
+            if (dbError) {
+                alert("Database save failed: " + dbError.message);
+            } else {
+                alert('Book uploaded successfully!');
+                document.getElementById('book-title').value = ''; // clear input
+                fileInput.value = ''; // clear file
+                fetchBooks(); // refresh list
+            }
+        }
+
+        // --- 4. READER & PROGRESS LOGIC ---
+        async function openBook(id, title, url) {
+            currentBookId = id;
+            document.getElementById('current-book-title').innerText = title;
+            showSection('reader-section');
+            
+            const viewer = document.getElementById('viewer');
+            viewer.innerHTML = '<p style="text-align:center; margin-top:20vh; color:#666;">Loading book...</p>';
+
+            // Initialize ePub.js
+            book = ePub(url);
+            
+            // Render the book to the screen
+            rendition = book.renderTo("viewer", { 
+                width: "100%", 
+                height: "100%", 
+                spread: "none" // Ensures single page view, best for mobile and web
+            });
+
+            // Fetch the user's Last Read Position from Supabase
+            const { data, error } = await supabase
+                .from('user_progress')
+                .select('last_cfi')
+                .eq('user_id', currentUser.id)
+                .eq('book_id', id)
+                .maybeSingle();
+
+            // Display the book at the saved location, or the beginning
+            if (data && data.last_cfi) {
+                rendition.display(data.last_cfi);
+            } else {
+                rendition.display();
+            }
+
+            // Save Progress automatically when the page turns
+            rendition.on('relocated', async function(location) {
+                const cfi = location.start.cfi;
+                
+                // Upsert (Update if exists, Insert if new)
+                await supabase.from('user_progress').upsert({
+                    user_id: currentUser.id,
+                    book_id: currentBookId,
+                    last_cfi: cfi
+                }, { onConflict: 'user_id, book_id' });
+            });
+            
+            // Keyboard navigation
+            document.addEventListener('keyup', (e) => {
+                if(e.key === "ArrowLeft" && rendition) rendition.prev();
+                if(e.key === "ArrowRight" && rendition) rendition.next();
+            });
+        }
+
+        // --- UI HELPER ---
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        // Initialize App
+        checkSession();
+    </script>
+</body>
+</html>
