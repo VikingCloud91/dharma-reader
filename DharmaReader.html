@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dharma Reader</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
+    <style>
+        :root { --bg: #FFF9E6; --text: #2c2c2c; --primary: #8B0000; }
+        body { font-family: 'Georgia', serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+        header { background: var(--primary); color: white; padding: 15px 20px; display: flex; justify-content: space-between; }
+        button { background: transparent; border: 1px solid white; color: white; padding: 8px 12px; cursor: pointer; border-radius: 4px; }
+        .btn-dark { background: var(--primary); border: none; }
+        
+        /* Layout Sections */
+        .section { display: none; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .active { display: block; }
+
+        /* Auth Modal */
+        .auth-container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; }
+        .auth-container input { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+        .auth-container button { width: 100%; margin-top: 10px; color: white; background: var(--primary); }
+
+        /* Dashboard Cards */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; text-align: center; border-top: 4px solid var(--primary); }
+        .card:hover { transform: translateY(-2px); }
+
+        /* Admin Editor */
+        #admin-panel { background: #ffe6e6; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px dashed var(--primary); }
+        
+        /* Reader */
+        #viewer { height: 70vh; background: white; margin-top: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .nav-controls { display: flex; justify-content: space-between; margin-top: 10px; }
+        .nav-controls button { color: var(--primary); border-color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="font-size: 1.2rem; font-weight: bold;">Dharma Reader</div>
+        <div>
+            <span id="user-email" style="margin-right: 15px; font-size: 0.9rem;"></span>
+            <button id="logout-btn" style="display:none;" onclick="signOut()">Logout</button>
+        </div>
+    </header>
+
+    <div id="auth-section" class="section active">
+        <div class="auth-container">
+            <h2>Welcome</h2>
+            <p>Please log in or create an account to read.</p>
+            <input type="email" id="email" placeholder="Email Address">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="signIn()">Login</button>
+            <button onclick="signUp()" style="background: #555;">Create Account</button>
+        </div>
+    </div>
+
+    <div id="dashboard-section" class="section">
+        <h2>Your Library</h2>
+        
+        <div id="admin-panel" style="display: none;">
+            <h3>🛠️ Admin Editor Mode</h3>
+            <input type="text" id="book-title" placeholder="Book Title (e.g. Mahabharata Vol 1)" style="padding: 8px; margin-right: 10px;">
+            <input type="file" id="book-file" accept=".epub" style="color: black;">
+            <button class="btn-dark" onclick="uploadBook()">Upload Book</button>
+        </div>
+
+        <div id="book-list" class="grid">
+            </div>
+    </div>
+
+    <div id="reader-section" class="section">
+        <button class="btn-dark" onclick="showSection('dashboard-section')">← Back to Library</button>
+        <h3 id="current-book-title" style="text-align: center; color: var(--primary);"></h3>
+        <div id="viewer"></div>
+        <div class="nav-controls">
+            <button onclick="if(rendition) rendition.prev()">❮ Previous Page</button>
+            <button onclick="if(rendition) rendition.next()">Next Page ❯</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. SUPABASE INITIALIZATION ---
+        const SUPABASE_URL = 'https://hitxkcalxcofvimcmnca.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpdHhrY2FseGNvZnZpbWNtbmNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTk3ODksImV4cCI6MjA5MjY3NTc4OX0.xEwkDKe1D2hGvHL2ZQZzEciOOIlYK5WIngLDLyFsWW0';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const ADMIN_EMAIL = '405shivpuram@gmail.com'; // Hardcoded check for admin rights
+        let currentUser = null;
+        let currentBookId = null;
+        let book, rendition;
+
+        // --- 2. AUTHENTICATION LOGIC ---
+        async function signUp() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const { data, error } = await supabase.auth.signUp({ email, password });
+            if (error) alert(error.message);
+            else alert("Account created! You can now log in.");
+        }
+
+        async function signIn() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) alert(error.message);
+            else checkSession();
+        }
+
+        async function signOut() {
+            await supabase.auth.signOut();
+            checkSession();
+        }
+
+        async function checkSession() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                currentUser = session.user;
+                document.getElementById('user-email').innerText = currentUser.email;
+                document.getElementById('logout-btn').style.display = 'inline-block';
+                
+                // Show Admin Editor only if email matches
+                if (currentUser.email === ADMIN_EMAIL) {
+                    document.getElementById('admin-panel').style.display = 'block';
+                } else {
+                    document.getElementById('admin-panel').style.display = 'none';
+                }
+
+                showSection('dashboard-section');
+                fetchBooks();
+            } else {
+                currentUser = null;
+                document.getElementById('user-email').innerText = '';
+                document.getElementById('logout-btn').style.display = 'none';
+                showSection('auth-section');
+            }
+        }
+
+        // --- 3. DATABASE & STORAGE LOGIC ---
+        async function fetchBooks() {
+            const { data, error } = await supabase.from('books').select('*');
+            const list = document.getElementById('book-list');
+            list.innerHTML = '';
+            
+            if (data) {
+                data.forEach(b => {
+                    list.innerHTML += `
+                        <div class="card" onclick="openBook('${b.id}', '${b.title}', '${b.file_url}')">
+                            <h3>${b.title}</h3>
+                            <p style="font-size:0.8rem; color:#666;">Tap to read</p>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        async function uploadBook() {
+            const title = document.getElementById('book-title').value;
+            const fileInput = document.getElementById('book-file');
+            if (!title || fileInput.files.length === 0) return alert('Enter title and select an EPUB file.');
+
+            const file = fileInput.files[0];
+            const fileName = `${Date.now()}_${file.name}`;
+
+            alert('Uploading... Please wait.');
+            
+            // Upload to Storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('dharma-books')
+                .upload(fileName, file);
+
+            if (uploadError) return alert(uploadError.message);
+
+            // Get Public URL
+            const { data: { publicUrl } } = supabase.storage.from('dharma-books').getPublicUrl(fileName);
+
+            // Save to Database
+            const { error: dbError } = await supabase.from('books').insert([{ title: title, file_url: publicUrl }]);
+            
+            if (dbError) alert(dbError.message);
+            else {
+                alert('Book uploaded successfully!');
+                fetchBooks();
+            }
+        }
+
+        // --- 4. READER & PROGRESS LOGIC ---
+        async function openBook(id, title, url) {
+            currentBookId = id;
+            document.getElementById('current-book-title').innerText = title;
+            showSection('reader-section');
+            document.getElementById('viewer').innerHTML = ''; // Clear previous
+
+            book = ePub(url);
+            rendition = book.renderTo("viewer", { width: "100%", height: "100%", spread: "none" });
+
+            // Fetch Last Read Position
+            const { data } = await supabase.from('user_progress')
+                .select('last_cfi').eq('user_id', currentUser.id).eq('book_id', id).single();
+
+            if (data && data.last_cfi) {
+                rendition.display(data.last_cfi);
+            } else {
+                rendition.display();
+            }
+
+            // Save Progress when page turns
+            rendition.on('relocated', async function(location) {
+                const cfi = location.start.cfi;
+                
+                // Upsert (Update or Insert) progress
+                await supabase.from('user_progress').upsert({
+                    user_id: currentUser.id,
+                    book_id: currentBookId,
+                    last_cfi: cfi
+                }, { onConflict: 'user_id, book_id' });
+            });
+        }
+
+        // --- UI HELPER ---
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        // Check login status on page load
+        checkSession();
+    </script>
+</body>
+</html>
