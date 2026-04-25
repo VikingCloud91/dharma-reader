@@ -24,6 +24,7 @@
         .auth-container { background: white; padding: 40px 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; max-width: 400px; margin-left: auto; margin-right: auto; }
         .google-btn { width: 100%; margin-top: 20px; color: white; background: #4285F4; border: none; padding: 12px; font-size: 1rem; font-weight: bold; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; }
         .google-btn:hover { background: #357ae8; }
+        .google-btn svg { pointer-events: none; /* Prevents the icon from eating the click event */ }
 
         /* Dashboard Cards */
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
@@ -75,8 +76,7 @@
             </div>
         </div>
 
-        <div id="book-list" class="grid">
-            </div>
+        <div id="book-list" class="grid"></div>
     </div>
 
     <div id="reader-section" class="section">
@@ -98,7 +98,7 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpdHhrY2FseGNvZnZpbWNtbmNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTk3ODksImV4cCI6MjA5MjY3NTc4OX0.xEwkDKe1D2hGvHL2ZQZzEciOOIlYK5WIngLDLyFsWW0';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        const ADMIN_EMAIL = '405shivpuram@gmail.com'; // Your admin credentials
+        const ADMIN_EMAIL = '405shivpuram@gmail.com'; 
         window.currentUser = null;
         window.currentBookId = null;
         window.book = null;
@@ -112,81 +112,93 @@
 
         // --- 3. GOOGLE AUTHENTICATION LOGIC ---
         window.signInWithGoogle = async function() {
+            console.log("1. Button Clicked! Attempting to launch Google Auth...");
             try {
+                // By omitting redirectTo, Supabase defaults to your configured Site URL. 
+                // This prevents local file:// crashes.
                 const { data, error } = await supabase.auth.signInWithOAuth({
-                    provider: 'google',
-                    options: {
-                        // This dynamically gets your current URL (works locally & on GH Pages)
-                        redirectTo: window.location.origin + window.location.pathname 
-                    }
+                    provider: 'google'
                 });
-                if (error) throw error;
+                
+                if (error) {
+                    console.error("2. Supabase returned an error:", error);
+                    alert("Authentication failed: " + error.message);
+                } else {
+                    console.log("2. Redirecting to Google...");
+                }
             } catch (err) {
-                alert("Login Error: " + err.message);
-                console.error(err);
+                console.error("3. Critical Catch Block Error:", err);
+                alert("An unexpected error occurred. Please check the console.");
             }
         };
 
         window.signOut = async function() {
             await supabase.auth.signOut();
-            checkSession(); // refresh UI
+            checkSession(); 
         };
 
-        // Run this function immediately when the page loads
         async function checkSession() {
-            const { data: { session }, error } = await supabase.auth.getSession();
-            
-            if (session) {
-                window.currentUser = session.user;
-                document.getElementById('user-email').innerText = window.currentUser.email;
-                document.getElementById('logout-btn').style.display = 'inline-block';
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
                 
-                // Show Admin Panel ONLY if logged in user is you
-                if (window.currentUser.email === ADMIN_EMAIL) {
-                    document.getElementById('admin-panel').style.display = 'block';
-                } else {
-                    document.getElementById('admin-panel').style.display = 'none';
-                }
+                if (error) throw error;
 
-                window.showSection('dashboard-section');
-                fetchBooks();
-            } else {
-                window.currentUser = null;
-                document.getElementById('user-email').innerText = '';
-                document.getElementById('logout-btn').style.display = 'none';
-                window.showSection('auth-section');
+                if (session) {
+                    window.currentUser = session.user;
+                    document.getElementById('user-email').innerText = window.currentUser.email;
+                    document.getElementById('logout-btn').style.display = 'inline-block';
+                    
+                    if (window.currentUser.email === ADMIN_EMAIL) {
+                        document.getElementById('admin-panel').style.display = 'block';
+                    } else {
+                        document.getElementById('admin-panel').style.display = 'none';
+                    }
+
+                    window.showSection('dashboard-section');
+                    fetchBooks();
+                } else {
+                    window.currentUser = null;
+                    document.getElementById('user-email').innerText = '';
+                    document.getElementById('logout-btn').style.display = 'none';
+                    window.showSection('auth-section');
+                }
+            } catch (err) {
+                console.error("Session check failed. Your corporate network might be blocking Supabase:", err);
             }
             
-            // Listen for auth state changes (e.g. returning from Google login)
             supabase.auth.onAuthStateChange((event, session) => {
-                if (event === 'SIGNED_IN' && session) {
-                    window.location.reload(); // Refresh to ensure clean state
+                // Only reload if we are actively returning from a Google redirect (hash in URL)
+                if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
+                    // Remove the ugly token from the URL and reload clean
+                    window.history.replaceState(null, '', window.location.pathname);
+                    window.location.reload(); 
                 }
             });
         }
 
         // --- 4. DATABASE & STORAGE LOGIC ---
         async function fetchBooks() {
-            const { data, error } = await supabase.from('books').select('*').order('created_at', { ascending: true });
-            const list = document.getElementById('book-list');
-            list.innerHTML = '';
-            
-            if (error) {
-                console.error("Error fetching books:", error);
-                return;
-            }
+            try {
+                const { data, error } = await supabase.from('books').select('*').order('created_at', { ascending: true });
+                const list = document.getElementById('book-list');
+                list.innerHTML = '';
+                
+                if (error) throw error;
 
-            if (data && data.length > 0) {
-                data.forEach(b => {
-                    list.innerHTML += `
-                        <div class="card" onclick="window.openBook('${b.id}', '${b.title}', '${b.file_url}')">
-                            <h3 style="margin-top:0; color:var(--primary);">${b.title}</h3>
-                            <p style="font-size:0.85rem; color:#666; margin-bottom:0;">📖 Tap to read</p>
-                        </div>
-                    `;
-                });
-            } else {
-                list.innerHTML = '<p style="color:#666;">No books available yet.</p>';
+                if (data && data.length > 0) {
+                    data.forEach(b => {
+                        list.innerHTML += `
+                            <div class="card" onclick="window.openBook('${b.id}', '${b.title}', '${b.file_url}')">
+                                <h3 style="margin-top:0; color:var(--primary);">${b.title}</h3>
+                                <p style="font-size:0.85rem; color:#666; margin-bottom:0;">📖 Tap to read</p>
+                            </div>
+                        `;
+                    });
+                } else {
+                    list.innerHTML = '<p style="color:#666;">No books available yet.</p>';
+                }
+            } catch (err) {
+                console.error("Error fetching books:", err);
             }
         }
 
@@ -204,30 +216,30 @@
 
             alert('Uploading... Please wait. Do not close the page.');
             
-            // 1. Upload file to Supabase Storage bucket 'dharma-books'
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('dharma-books')
-                .upload(fileName, file);
+            try {
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('dharma-books')
+                    .upload(fileName, file);
 
-            if (uploadError) return alert("Upload failed: " + uploadError.message);
+                if (uploadError) throw uploadError;
 
-            // 2. Get the public URL for the newly uploaded file
-            const { data: { publicUrl } } = supabase.storage
-                .from('dharma-books')
-                .getPublicUrl(fileName);
+                const { data: { publicUrl } } = supabase.storage
+                    .from('dharma-books')
+                    .getPublicUrl(fileName);
 
-            // 3. Save the Book Details to the Database
-            const { error: dbError } = await supabase.from('books').insert([
-                { title: title, file_url: publicUrl }
-            ]);
-            
-            if (dbError) {
-                alert("Database save failed: " + dbError.message);
-            } else {
+                const { error: dbError } = await supabase.from('books').insert([
+                    { title: title, file_url: publicUrl }
+                ]);
+                
+                if (dbError) throw dbError;
+                
                 alert('Book uploaded successfully!');
-                document.getElementById('book-title').value = ''; // clear input
-                fileInput.value = ''; // clear file
-                fetchBooks(); // refresh list
+                document.getElementById('book-title').value = ''; 
+                fileInput.value = ''; 
+                fetchBooks(); 
+            } catch (err) {
+                console.error("Upload error:", err);
+                alert("Upload failed: " + err.message);
             }
         };
 
@@ -240,36 +252,34 @@
             const viewer = document.getElementById('viewer');
             viewer.innerHTML = '<p style="text-align:center; margin-top:20vh; color:#666;">Loading book...</p>';
 
-            // Initialize ePub.js globally
             window.book = ePub(url);
             
-            // Render the book to the screen
             window.rendition = window.book.renderTo("viewer", { 
                 width: "100%", 
                 height: "100%", 
-                spread: "none" // Ensures single page view, best for mobile and web
+                spread: "none" 
             });
 
-            // Fetch the user's Last Read Position from Supabase
-            const { data, error } = await supabase
-                .from('user_progress')
-                .select('last_cfi')
-                .eq('user_id', window.currentUser.id)
-                .eq('book_id', id)
-                .maybeSingle();
+            try {
+                const { data, error } = await supabase
+                    .from('user_progress')
+                    .select('last_cfi')
+                    .eq('user_id', window.currentUser.id)
+                    .eq('book_id', id)
+                    .maybeSingle();
 
-            // Display the book at the saved location, or the beginning
-            if (data && data.last_cfi) {
-                window.rendition.display(data.last_cfi);
-            } else {
+                if (data && data.last_cfi) {
+                    window.rendition.display(data.last_cfi);
+                } else {
+                    window.rendition.display();
+                }
+            } catch (err) {
+                console.error("Could not load saved progress:", err);
                 window.rendition.display();
             }
 
-            // Save Progress automatically when the page turns
             window.rendition.on('relocated', async function(location) {
                 const cfi = location.start.cfi;
-                
-                // Upsert (Update if exists, Insert if new)
                 await supabase.from('user_progress').upsert({
                     user_id: window.currentUser.id,
                     book_id: window.currentBookId,
@@ -277,7 +287,6 @@
                 }, { onConflict: 'user_id, book_id' });
             });
             
-            // Keyboard navigation
             document.addEventListener('keyup', (e) => {
                 if(e.key === "ArrowLeft" && window.rendition) window.rendition.prev();
                 if(e.key === "ArrowRight" && window.rendition) window.rendition.next();
