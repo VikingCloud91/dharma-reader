@@ -22,7 +22,7 @@
 
         /* Auth Modal */
         .auth-container { background: white; padding: 40px 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; margin-top: 50px; max-width: 400px; margin-left: auto; margin-right: auto; }
-        .google-btn { width: 100%; margin-top: 20px; color: white; background: #4285F4; border: none; padding: 12px; font-size: 1rem; font-weight: bold; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .google-btn { width: 100%; margin-top: 20px; color: white; background: #4285F4; border: none; padding: 12px; font-size: 1rem; font-weight: bold; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; }
         .google-btn:hover { background: #357ae8; }
 
         /* Dashboard Cards */
@@ -47,7 +47,7 @@
         <div style="font-size: 1.2rem; font-weight: bold;">Dharma Reader</div>
         <div style="display: flex; align-items: center; gap: 15px;">
             <span id="user-email" style="font-size: 0.9rem; opacity: 0.9;"></span>
-            <button id="logout-btn" style="display:none;" onclick="signOut()">Logout</button>
+            <button id="logout-btn" style="display:none;" onclick="window.signOut()">Logout</button>
         </div>
     </header>
 
@@ -56,7 +56,7 @@
             <h2 style="color: var(--primary); margin-top: 0;">Welcome</h2>
             <p style="color: #666;">Please sign in to access your library and save your reading progress.</p>
             
-            <button class="google-btn" onclick="signInWithGoogle()">
+            <button class="google-btn" onclick="window.signInWithGoogle()">
                 <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
                 Sign in with Google
             </button>
@@ -71,7 +71,7 @@
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                 <input type="text" id="book-title" placeholder="Book Title (e.g. Mahabharata)" style="padding: 8px; flex-grow: 1;">
                 <input type="file" id="book-file" accept=".epub" style="color: black;">
-                <button class="btn-dark" onclick="uploadBook()">Upload Book</button>
+                <button class="btn-dark" onclick="window.uploadBook()">Upload Book</button>
             </div>
         </div>
 
@@ -80,14 +80,14 @@
     </div>
 
     <div id="reader-section" class="section">
-        <button class="btn-dark" onclick="showSection('dashboard-section')">← Back to Library</button>
+        <button class="btn-dark" onclick="window.showSection('dashboard-section')">← Back to Library</button>
         
         <div id="viewer-container">
             <h3 id="current-book-title" style="text-align: center; color: var(--primary); margin-bottom: 5px;"></h3>
             <div id="viewer"></div>
             <div class="nav-controls">
-                <button onclick="if(rendition) rendition.prev()">❮ Previous Page</button>
-                <button onclick="if(rendition) rendition.next()">Next Page ❯</button>
+                <button onclick="if(window.rendition) window.rendition.prev()">❮ Previous Page</button>
+                <button onclick="if(window.rendition) window.rendition.next()">Next Page ❯</button>
             </div>
         </div>
     </div>
@@ -99,50 +99,62 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const ADMIN_EMAIL = '405shivpuram@gmail.com'; // Your admin credentials
-        let currentUser = null;
-        let currentBookId = null;
-        let book, rendition;
+        window.currentUser = null;
+        window.currentBookId = null;
+        window.book = null;
+        window.rendition = null;
 
-        // --- 2. GOOGLE AUTHENTICATION LOGIC ---
-        async function signInWithGoogle() {
-            const { data, error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    // This dynamically gets your current URL (works locally & on GH Pages)
-                    redirectTo: window.location.origin + window.location.pathname 
-                }
-            });
-            if (error) alert(error.message);
-        }
+        // --- 2. GLOBAL UI HELPER ---
+        window.showSection = function(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        };
 
-        async function signOut() {
+        // --- 3. GOOGLE AUTHENTICATION LOGIC ---
+        window.signInWithGoogle = async function() {
+            try {
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        // This dynamically gets your current URL (works locally & on GH Pages)
+                        redirectTo: window.location.origin + window.location.pathname 
+                    }
+                });
+                if (error) throw error;
+            } catch (err) {
+                alert("Login Error: " + err.message);
+                console.error(err);
+            }
+        };
+
+        window.signOut = async function() {
             await supabase.auth.signOut();
             checkSession(); // refresh UI
-        }
+        };
 
         // Run this function immediately when the page loads
         async function checkSession() {
             const { data: { session }, error } = await supabase.auth.getSession();
             
             if (session) {
-                currentUser = session.user;
-                document.getElementById('user-email').innerText = currentUser.email;
+                window.currentUser = session.user;
+                document.getElementById('user-email').innerText = window.currentUser.email;
                 document.getElementById('logout-btn').style.display = 'inline-block';
                 
                 // Show Admin Panel ONLY if logged in user is you
-                if (currentUser.email === ADMIN_EMAIL) {
+                if (window.currentUser.email === ADMIN_EMAIL) {
                     document.getElementById('admin-panel').style.display = 'block';
                 } else {
                     document.getElementById('admin-panel').style.display = 'none';
                 }
 
-                showSection('dashboard-section');
+                window.showSection('dashboard-section');
                 fetchBooks();
             } else {
-                currentUser = null;
+                window.currentUser = null;
                 document.getElementById('user-email').innerText = '';
                 document.getElementById('logout-btn').style.display = 'none';
-                showSection('auth-section');
+                window.showSection('auth-section');
             }
             
             // Listen for auth state changes (e.g. returning from Google login)
@@ -153,7 +165,7 @@
             });
         }
 
-        // --- 3. DATABASE & STORAGE LOGIC ---
+        // --- 4. DATABASE & STORAGE LOGIC ---
         async function fetchBooks() {
             const { data, error } = await supabase.from('books').select('*').order('created_at', { ascending: true });
             const list = document.getElementById('book-list');
@@ -167,7 +179,7 @@
             if (data && data.length > 0) {
                 data.forEach(b => {
                     list.innerHTML += `
-                        <div class="card" onclick="openBook('${b.id}', '${b.title}', '${b.file_url}')">
+                        <div class="card" onclick="window.openBook('${b.id}', '${b.title}', '${b.file_url}')">
                             <h3 style="margin-top:0; color:var(--primary);">${b.title}</h3>
                             <p style="font-size:0.85rem; color:#666; margin-bottom:0;">📖 Tap to read</p>
                         </div>
@@ -178,7 +190,7 @@
             }
         }
 
-        async function uploadBook() {
+        window.uploadBook = async function() {
             const title = document.getElementById('book-title').value;
             const fileInput = document.getElementById('book-file');
             
@@ -217,22 +229,22 @@
                 fileInput.value = ''; // clear file
                 fetchBooks(); // refresh list
             }
-        }
+        };
 
-        // --- 4. READER & PROGRESS LOGIC ---
-        async function openBook(id, title, url) {
-            currentBookId = id;
+        // --- 5. READER & PROGRESS LOGIC ---
+        window.openBook = async function(id, title, url) {
+            window.currentBookId = id;
             document.getElementById('current-book-title').innerText = title;
-            showSection('reader-section');
+            window.showSection('reader-section');
             
             const viewer = document.getElementById('viewer');
             viewer.innerHTML = '<p style="text-align:center; margin-top:20vh; color:#666;">Loading book...</p>';
 
-            // Initialize ePub.js
-            book = ePub(url);
+            // Initialize ePub.js globally
+            window.book = ePub(url);
             
             // Render the book to the screen
-            rendition = book.renderTo("viewer", { 
+            window.rendition = window.book.renderTo("viewer", { 
                 width: "100%", 
                 height: "100%", 
                 spread: "none" // Ensures single page view, best for mobile and web
@@ -242,41 +254,35 @@
             const { data, error } = await supabase
                 .from('user_progress')
                 .select('last_cfi')
-                .eq('user_id', currentUser.id)
+                .eq('user_id', window.currentUser.id)
                 .eq('book_id', id)
                 .maybeSingle();
 
             // Display the book at the saved location, or the beginning
             if (data && data.last_cfi) {
-                rendition.display(data.last_cfi);
+                window.rendition.display(data.last_cfi);
             } else {
-                rendition.display();
+                window.rendition.display();
             }
 
             // Save Progress automatically when the page turns
-            rendition.on('relocated', async function(location) {
+            window.rendition.on('relocated', async function(location) {
                 const cfi = location.start.cfi;
                 
                 // Upsert (Update if exists, Insert if new)
                 await supabase.from('user_progress').upsert({
-                    user_id: currentUser.id,
-                    book_id: currentBookId,
+                    user_id: window.currentUser.id,
+                    book_id: window.currentBookId,
                     last_cfi: cfi
                 }, { onConflict: 'user_id, book_id' });
             });
             
             // Keyboard navigation
             document.addEventListener('keyup', (e) => {
-                if(e.key === "ArrowLeft" && rendition) rendition.prev();
-                if(e.key === "ArrowRight" && rendition) rendition.next();
+                if(e.key === "ArrowLeft" && window.rendition) window.rendition.prev();
+                if(e.key === "ArrowRight" && window.rendition) window.rendition.next();
             });
-        }
-
-        // --- UI HELPER ---
-        function showSection(id) {
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-        }
+        };
 
         // Initialize App
         checkSession();
