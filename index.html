@@ -21,7 +21,7 @@
     <div id="auth-screen" class="flex flex-col items-center justify-center min-h-screen p-4">
         <h1 class="text-4xl font-bold text-[#ff9933] mb-2 text-center">Dharma Reader</h1>
         <p class="text-gray-600 mb-8 text-center">A digital library for family & friends.</p>
-        <button onclick="window.signInWithGoogle()" class="bg-white border border-gray-300 px-6 py-3 rounded-lg flex items-center shadow-sm hover:shadow-md transition-all">
+        <button id="login-btn" class="bg-white border border-gray-300 px-6 py-3 rounded-lg flex items-center shadow-sm hover:shadow-md transition-all">
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-6 h-6 mr-3" alt="Google">
             Sign in with Google
         </button>
@@ -32,7 +32,6 @@
             <h2 class="text-xl font-bold text-[#ff9933]">Dharma Library</h2>
             <button onclick="window.signOut()" class="text-sm text-gray-500 underline">Logout</button>
         </nav>
-
         <main class="p-4 max-w-5xl mx-auto">
             <div id="admin-panel" class="hidden mb-8 p-6 bg-orange-50 border border-orange-200 rounded-xl">
                 <h3 class="font-bold mb-4">Admin: Upload New Book</h3>
@@ -42,9 +41,7 @@
                     <button onclick="window.uploadBook()" id="uploadBtn" class="bg-[#ff9933] text-white px-6 py-2 rounded font-bold hover:bg-orange-600">Upload</button>
                 </div>
             </div>
-
-            <div id="book-grid" class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                </div>
+            <div id="book-grid" class="grid grid-cols-2 md:grid-cols-4 gap-6"></div>
         </main>
     </div>
 
@@ -54,7 +51,7 @@
             <span id="reading-title" class="truncate max-w-[200px] font-medium"></span>
             <div class="w-10"></div>
         </header>
-        <div id="viewer" class="flex-1 overflow-hidden"></div>
+        <div id="viewer" class="flex-1"></div>
         <footer class="p-4 border-t flex justify-between items-center bg-gray-50">
             <button onclick="window.prevPage()" class="px-6 py-2 bg-gray-200 rounded-lg">Prev</button>
             <button onclick="window.nextPage()" class="px-6 py-2 bg-gray-200 rounded-lg">Next</button>
@@ -62,33 +59,32 @@
     </div>
 
     <script>
-        // REPLACE THESE WITH YOUR ACTUAL SUPABASE CREDENTIALS
+        // 1. UPDATE THESE VALUES
         const SB_URL = "YOUR_SUPABASE_URL"; 
         const SB_KEY = "YOUR_SUPABASE_ANON_KEY";
         const ADMIN_EMAIL = "405shivpuram@gmail.com";
 
-        // Initializing with 'db' to avoid SyntaxError with global 'supabase' object
+        // 2. INITIALIZE CLIENT
         const db = supabase.createClient(SB_URL, SB_KEY);
-        
-        let rendition = null;
-        let currentBook = null;
-        let currentUser = null;
+        let rendition = null, currentBook = null, currentUser = null;
 
-        window.signInWithGoogle = async () => {
-            console.log("Initializing Login...");
-            const { error } = await db.auth.signInWithOAuth({
+        // 3. ATTACH LOGIN EVENT
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            console.log("Login button clicked!"); // If you don't see this in console, the button is blocked.
+            const { data, error } = await db.auth.signInWithOAuth({
                 provider: 'google',
                 options: { 
-                    redirectTo: window.location.origin + window.location.pathname 
+                    redirectTo: window.location.origin + window.location.pathname,
+                    queryParams: { prompt: 'select_account' }
                 }
             });
-            if (error) alert("Auth Error: " + error.message);
-        };
+            if (error) {
+                console.error("Auth Error:", error.message);
+                alert("Login Error: " + error.message);
+            }
+        });
 
-        window.signOut = async () => {
-            await db.auth.signOut();
-            location.reload();
-        };
+        window.signOut = async () => { await db.auth.signOut(); location.reload(); };
 
         async function init() {
             const { data: { session } } = await db.auth.getSession();
@@ -96,61 +92,30 @@
                 currentUser = session.user;
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('dashboard').classList.remove('hidden');
-                
-                if (currentUser.email === ADMIN_EMAIL) {
-                    document.getElementById('admin-panel').classList.remove('hidden');
-                }
+                if (currentUser.email === ADMIN_EMAIL) document.getElementById('admin-panel').classList.remove('hidden');
                 loadLibrary();
             }
-
-            db.auth.onAuthStateChange((event, session) => {
-                if (event === 'SIGNED_IN' && !currentUser) {
-                    location.reload();
-                }
-            });
         }
 
         async function loadLibrary() {
-            const { data: books, error } = await db.from('books').select('*');
-            if (error) return console.error("Library Error:", error);
-            
+            const { data: books } = await db.from('books').select('*');
             const grid = document.getElementById('book-grid');
-            grid.innerHTML = '';
-
-            books.forEach(book => {
-                const card = document.createElement('div');
-                card.className = 'book-card bg-white p-4 rounded-lg shadow-sm border text-center';
-                card.innerHTML = `
+            grid.innerHTML = (books || []).map(book => `
+                <div class="book-card bg-white p-4 rounded-lg shadow-sm border text-center" onclick="window.openBook(${JSON.stringify(book).replace(/"/g, '&quot;')})">
                     <div class="aspect-[3/4] bg-orange-100 mb-3 flex items-center justify-center rounded">
-                        <span class="text-orange-400 font-bold">EPUB</span>
+                        <span class="text-orange-400 font-bold text-xs">EPUB</span>
                     </div>
                     <h4 class="font-bold text-sm truncate">${book.title}</h4>
-                `;
-                card.onclick = () => window.openBook(book);
-                grid.appendChild(card);
-            });
+                </div>
+            `).join('');
         }
 
         window.uploadBook = async () => {
-            const fileInput = document.getElementById('bookFile');
+            const file = document.getElementById('bookFile').files[0];
             const title = document.getElementById('bookTitle').value;
-            const file = fileInput.files[0];
-            const btn = document.getElementById('uploadBtn');
-
-            if (!file || !title) return alert("Please provide title and file");
-
-            btn.disabled = true;
-            btn.innerText = "Uploading...";
-
+            if (!file || !title) return alert("Missing info");
             const fileName = `${Date.now()}_${file.name}`;
-            const { data, error } = await db.storage.from('epubs').upload(fileName, file);
-
-            if (error) {
-                btn.disabled = false;
-                btn.innerText = "Upload";
-                return alert(error.message);
-            }
-
+            await db.storage.from('epubs').upload(fileName, file);
             const { data: urlData } = db.storage.from('epubs').getPublicUrl(fileName);
             await db.from('books').insert([{ title, file_url: urlData.publicUrl }]);
             location.reload();
@@ -161,44 +126,18 @@
             document.getElementById('dashboard').classList.add('hidden');
             document.getElementById('reader-view').classList.remove('hidden');
             document.getElementById('reading-title').innerText = book.title;
-
             const bookObj = ePub(book.file_url);
-            rendition = bookObj.renderTo("viewer", {
-                width: "100%", height: "100%", flow: "paginated", manager: "default"
-            });
-
-            const { data } = await db.from('user_progress')
-                .select('last_location')
-                .match({ user_id: currentUser.id, book_id: book.id })
-                .maybeSingle();
-
+            rendition = bookObj.renderTo("viewer", { width: "100%", height: "100%", flow: "paginated" });
+            const { data } = await db.from('user_progress').select('last_location').match({ user_id: currentUser.id, book_id: book.id }).maybeSingle();
             rendition.display(data?.last_location || undefined);
-
-            rendition.on("relocated", async (location) => {
-                const cfi = location.start.cfi;
-                await db.from('user_progress').upsert({
-                    user_id: currentUser.id,
-                    book_id: currentBook.id,
-                    last_location: cfi,
-                    updated_at: new Date()
-                });
+            rendition.on("relocated", (loc) => {
+                db.from('user_progress').upsert({ user_id: currentUser.id, book_id: currentBook.id, last_location: loc.start.cfi, updated_at: new Date() });
             });
         };
 
-        window.closeReader = () => {
-            document.getElementById('reader-view').classList.add('hidden');
-            document.getElementById('dashboard').classList.remove('hidden');
-            if (rendition) rendition.destroy();
-        };
-
-        window.nextPage = () => rendition && rendition.next();
-        window.prevPage = () => rendition && rendition.prev();
-
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "ArrowRight") window.nextPage();
-            if (e.key === "ArrowLeft") window.prevPage();
-        });
-
+        window.closeReader = () => { document.getElementById('reader-view').classList.add('hidden'); document.getElementById('dashboard').classList.remove('hidden'); if(rendition) rendition.destroy(); };
+        window.nextPage = () => rendition?.next();
+        window.prevPage = () => rendition?.prev();
         init();
     </script>
 </body>
