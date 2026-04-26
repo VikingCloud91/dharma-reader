@@ -8,23 +8,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/epub.js/0.3.88/epub.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root { --primary: #ff9933; --secondary: #1a202c; }
+        :root { --primary: #ff9933; }
         body { font-family: 'Inter', sans-serif; background: #f7fafc; margin: 0; overflow-x: hidden; }
         #viewer { height: 80vh; width: 100%; background: white; }
         .book-card { transition: transform 0.2s; cursor: pointer; }
         .book-card:hover { transform: translateY(-5px); }
         .hidden { display: none !important; }
-        /* Custom Reader Styles */
-        .epub-container { box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-radius: 8px; }
     </style>
 </head>
 <body>
 
     <div id="auth-screen" class="flex flex-col items-center justify-center min-h-screen p-4">
-        <h1 class="text-4xl font-bold text-[#ff9933] mb-2">Dharma Reader</h1>
+        <h1 class="text-4xl font-bold text-[#ff9933] mb-2 text-center">Dharma Reader</h1>
         <p class="text-gray-600 mb-8 text-center">A digital library for family & friends.</p>
         <button onclick="window.signInWithGoogle()" class="bg-white border border-gray-300 px-6 py-3 rounded-lg flex items-center shadow-sm hover:shadow-md transition-all">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-6 h-6 mr-3">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-6 h-6 mr-3" alt="Google">
             Sign in with Google
         </button>
     </div>
@@ -59,38 +57,41 @@
         <div id="viewer" class="flex-1 overflow-hidden"></div>
         <footer class="p-4 border-t flex justify-between items-center bg-gray-50">
             <button onclick="window.prevPage()" class="px-6 py-2 bg-gray-200 rounded-lg">Prev</button>
-            <span id="page-percent" class="text-xs text-gray-500">Loading...</span>
             <button onclick="window.nextPage()" class="px-6 py-2 bg-gray-200 rounded-lg">Next</button>
         </footer>
     </div>
 
     <script>
-        // CONFIGURATION
-        const SB_URL = "https://hitxkcalxcofvimcmnca.supabase.co";
-        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpdHhrY2FseGNvZnZpbWNtbmNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwOTk3ODksImV4cCI6MjA5MjY3NTc4OX0.xEwkDKe1D2hGvHL2ZQZzEciOOIlYK5WIngLDLyFsWW0";
+        // REPLACE THESE WITH YOUR ACTUAL SUPABASE CREDENTIALS
+        const SB_URL = "YOUR_SUPABASE_URL"; 
+        const SB_KEY = "YOUR_SUPABASE_ANON_KEY";
         const ADMIN_EMAIL = "405shivpuram@gmail.com";
 
-        const supabase = supabase.createClient(SB_URL, SB_KEY);
+        // Initializing with 'db' to avoid SyntaxError with global 'supabase' object
+        const db = supabase.createClient(SB_URL, SB_KEY);
+        
         let rendition = null;
         let currentBook = null;
         let currentUser = null;
 
-        // --- AUTHENTICATION ---
         window.signInWithGoogle = async () => {
-            await supabase.auth.signInWithOAuth({
+            console.log("Initializing Login...");
+            const { error } = await db.auth.signInWithOAuth({
                 provider: 'google',
-                options: { redirectTo: window.location.origin }
+                options: { 
+                    redirectTo: window.location.origin + window.location.pathname 
+                }
             });
+            if (error) alert("Auth Error: " + error.message);
         };
 
         window.signOut = async () => {
-            await supabase.auth.signOut();
+            await db.auth.signOut();
             location.reload();
         };
 
-        // --- CORE LOGIC ---
         async function init() {
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await db.auth.getSession();
             if (session) {
                 currentUser = session.user;
                 document.getElementById('auth-screen').classList.add('hidden');
@@ -102,14 +103,17 @@
                 loadLibrary();
             }
 
-            // Listen for Auth changes
-            supabase.auth.onAuthStateChange((event, session) => {
-                if (event === 'SIGNED_IN') location.reload();
+            db.auth.onAuthStateChange((event, session) => {
+                if (event === 'SIGNED_IN' && !currentUser) {
+                    location.reload();
+                }
             });
         }
 
         async function loadLibrary() {
-            const { data: books, error } = await supabase.from('books').select('*');
+            const { data: books, error } = await db.from('books').select('*');
+            if (error) return console.error("Library Error:", error);
+            
             const grid = document.getElementById('book-grid');
             grid.innerHTML = '';
 
@@ -127,7 +131,6 @@
             });
         }
 
-        // --- ADMIN FEATURES ---
         window.uploadBook = async () => {
             const fileInput = document.getElementById('bookFile');
             const title = document.getElementById('bookTitle').value;
@@ -140,20 +143,19 @@
             btn.innerText = "Uploading...";
 
             const fileName = `${Date.now()}_${file.name}`;
-            const { data, error } = await supabase.storage.from('epubs').upload(fileName, file);
+            const { data, error } = await db.storage.from('epubs').upload(fileName, file);
 
-            if (error) return alert(error.message);
+            if (error) {
+                btn.disabled = false;
+                btn.innerText = "Upload";
+                return alert(error.message);
+            }
 
-            const { data: urlData } = supabase.storage.from('epubs').getPublicUrl(fileName);
-            
-            await supabase.from('books').insert([
-                { title, file_url: urlData.publicUrl }
-            ]);
-
+            const { data: urlData } = db.storage.from('epubs').getPublicUrl(fileName);
+            await db.from('books').insert([{ title, file_url: urlData.publicUrl }]);
             location.reload();
         };
 
-        // --- READER FEATURES ---
         window.openBook = async (book) => {
             currentBook = book;
             document.getElementById('dashboard').classList.add('hidden');
@@ -162,31 +164,26 @@
 
             const bookObj = ePub(book.file_url);
             rendition = bookObj.renderTo("viewer", {
-                width: "100%",
-                height: "100%",
-                flow: "paginated",
-                manager: "default"
+                width: "100%", height: "100%", flow: "paginated", manager: "default"
             });
 
-            // Load saved progress
-            const { data } = await supabase.from('user_progress')
+            const { data } = await db.from('user_progress')
                 .select('last_location')
                 .match({ user_id: currentUser.id, book_id: book.id })
-                .single();
+                .maybeSingle();
 
-            const display = rendition.display(data?.last_location || undefined);
+            rendition.display(data?.last_location || undefined);
 
-            // Save progress on page change
             rendition.on("relocated", async (location) => {
                 const cfi = location.start.cfi;
-                await supabase.from('user_progress').upsert({
+                await db.from('user_progress').upsert({
                     user_id: currentUser.id,
                     book_id: currentBook.id,
                     last_location: cfi,
                     updated_at: new Date()
                 });
             });
-        }
+        };
 
         window.closeReader = () => {
             document.getElementById('reader-view').classList.add('hidden');
@@ -194,10 +191,9 @@
             if (rendition) rendition.destroy();
         };
 
-        window.nextPage = () => rendition.next();
-        window.prevPage = () => rendition.prev();
+        window.nextPage = () => rendition && rendition.next();
+        window.prevPage = () => rendition && rendition.prev();
 
-        // Keyboard support
         document.addEventListener("keydown", (e) => {
             if (e.key === "ArrowRight") window.nextPage();
             if (e.key === "ArrowLeft") window.prevPage();
